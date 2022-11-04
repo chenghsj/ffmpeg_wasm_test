@@ -1,6 +1,7 @@
 import { ChangeEvent, DragEvent, useEffect, useRef, useState } from 'react';
 import { createFFmpeg, fetchFile, FFmpeg } from '@ffmpeg/ffmpeg';
 import Draggable, { DraggableData, DraggableEventHandler, DraggableEvent } from 'react-draggable';
+import { Resizable } from 're-resizable';
 // import { useDraggable } from "react-use-draggable-scroll";
 
 const timelineWidth = 500;
@@ -22,15 +23,13 @@ export default function App() {
   const [currentTime, setCurrentTime] = useState(0);
   const [pauseTime, setPauseTime] = useState(0);
   const [posX, setPosX] = useState(0);
-  const [dragPosX, setDragPosX] = useState(0);
   const [duration, setDuration] = useState(0);
   const [isDragging, setIsDragging] = useState(false);
 
   useEffect(() => {
     if (play) {
       currentTimeID = setInterval(function () {
-        setCurrentTime((Math.round(videoEl.current?.currentTime! * 10) / 10))
-        console.log(((currentTime - pauseTime) / duration * timelineWidth) + posX);
+        setCurrentTime((Math.round(videoEl.current?.currentTime! * 100) / 100))
       }, 100);
     }
     return () => clearInterval(currentTimeID);
@@ -90,14 +89,15 @@ export default function App() {
 
   }
 
-  const handleStopClick = () => {
+  const handlePauseClick = () => {
     setPlay(false);
     videoEl.current?.pause();
     setPauseTime(videoEl.current!.currentTime);
+    console.log(videoEl.current!.currentTime);
   }
 
   const handleReplayClick = () => {
-    handleStopClick();
+    handlePauseClick();
     setReplay(true);
     setPlay(false);
     setCurrentTime(0);
@@ -108,23 +108,20 @@ export default function App() {
   }
 
   const handleDrag = (e: DraggableEvent, data: DraggableData) => {
-    handleStopClick();
-    let time = data.x / 500 * duration;
+    let time = Math.floor(data.x / 500 * duration * 100) / 100;
     setIsDragging(true);
     setCurrentTime(time);
     setPosX(data.x);
-    // console.log(data.x);
     videoEl.current!.currentTime = time
   }
 
   const handleDragStart = () => {
     setReplay(false);
-    setDragPosX((currentTime - pauseTime) / duration * timelineWidth);
   }
 
   const handleDragStop = (e: DraggableEvent, data: DraggableData) => {
-    let time = data.x / 500 * duration;
     setIsDragging(false);
+    handlePauseClick();
   }
 
   return (
@@ -150,24 +147,55 @@ export default function App() {
         >
           <Draggable
             axis='x'
+            bounds='parent'
+          >
+            <Resizable
+            style={{
+              border: "5px solid blue",
+              position: "absolute",
+              boxSizing: "border-box"
+            }}
+            defaultSize={{
+              width: 500,
+              height: 50
+            }}
+            enable={{
+              left: true,
+              right: true
+            }}
+            bounds='parent'
+          ></Resizable>
+          </Draggable>
+          
+          <Draggable
+            axis='x'
             bounds="parent"
             onStart={handleDragStart}
             onDrag={handleDrag}
             onStop={handleDragStop}
-            // defaultPosition={{ x: 0, y: 0 }}
-            position={replay ? { x: 0, y: 0 } : {x: posX, y: 0}}
+            position={replay ? { x: 0, y: 0 } : { x: isDragging ? posX : posX + (currentTime - pauseTime) / duration * timelineWidth, y: 0 }}
           >
             <span
+              onMouseEnter={() => {
+                videoEl.current!.pause();
+                setPlay(false)
+              }}
               style={{
                 cursor: 'grab',
-                left: isDragging ? dragPosX : (currentTime - pauseTime) / duration * timelineWidth,
-                // left: 0,
                 position: "absolute",
                 width: "2px",
                 height: "50px",
                 background: "#ff422a"
               }}
-            ></span>
+            >
+              <span 
+                style={{
+                  position: 'absolute',
+                  bottom: 0,
+                  transform:" translate(-50%, 25px)"
+                }}
+              >{currentTime}</span>
+            </span>
           </Draggable>
           {
             thumbnails.map((thumbnail, index) =>
