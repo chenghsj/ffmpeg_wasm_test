@@ -1,5 +1,6 @@
 {
   "compilerOptions": {
+    "allowJs": true,
     /* Language and Environment */
     "target": "esnext",
     "lib": [

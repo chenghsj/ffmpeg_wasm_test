@@ -12,9 +12,10 @@ export default function App() {
   // const { events } = useDraggable(frameRef);
   const videoEl = useRef<HTMLVideoElement>(null);
   const [videoSrc, setVideoSrc] = useState('');
+  const [uploadFile, setUploadFile] = useState<File>();
   const [message, setMessage] = useState('Click Start to transcode');
   const ffmpeg = createFFmpeg({
-    log: true,
+    log: false,
   });
   // const [files, setFiles] = useState<FileList | null>();
   const [thumbnails, setThumbnails] = useState<string[]>([]);
@@ -35,6 +36,12 @@ export default function App() {
     return () => clearInterval(currentTimeID);
   }, [play])
 
+  useEffect(() => {
+    if (uploadFile && duration) {
+      getThumbnails(uploadFile?.name as string, uploadFile as File)
+    }
+  }, [duration, uploadFile])
+
   const handleLoadedMetadata = () => {
     const video = videoEl.current;
     if (!video) return;
@@ -49,23 +56,30 @@ export default function App() {
   const getThumbnails = async (fileName: string, file: File) => {
     await ffmpeg.load();
     ffmpeg.FS('writeFile', fileName, await fetchFile(file));
-    await ffmpeg.run('-i', fileName, '-vf', `fps=${10 / duration},scale=-1:50,crop=50:50`, 'thumbnail-%03d.jpg')
-    let i = 1;
-    let errMessage = '';
     let tempThumbnails = [];
-    while (!errMessage) {
-      try {
-        const thumbnail = ffmpeg.FS('readFile', `thumbnail-${i.toString().padStart(3, '0')}.jpg`);
-        tempThumbnails.push(URL.createObjectURL(new Blob([thumbnail.buffer], { type: 'image/jpg' })))
-        i++;
-      } catch (err) {
-        if (err instanceof Error) {
-          errMessage = err.message;
-          console.error(err.message);
-        }
-      }
+
+    // Calculate the interval for the thumbnails
+    const interval = duration / 10;
+
+    // Extract the thumbnails
+    for (let i = 0; i < 10; i++) {
+      const outputFileName = `thumbnail_${i + 1}.jpg`;
+
+      await ffmpeg.run('-ss', String(i * interval), '-i', fileName, '-vf', 'scale=-1:50,crop=50:50', '-frames:v', '1', outputFileName);
+
+      // Read the output file from FFmpeg's in-memory filesystem
+      const data = ffmpeg.FS('readFile', outputFileName);
+
+      // Convert the data to a Blob
+      const blob = new Blob([data.buffer], { type: 'image/jpeg' });
+
+      // Do something with the Blob (e.g., create an Object URL and set it as the src of an img element)
+      const url = URL.createObjectURL(blob);
+      tempThumbnails.push(url);
+      console.log(url);
     }
     setThumbnails(tempThumbnails)
+
   }
 
   const handleOnChange = async (e: ChangeEvent<HTMLInputElement>) => {
@@ -74,7 +88,7 @@ export default function App() {
     // setFiles((e.target as HTMLInputElement).files);
     let file = (e.target as HTMLInputElement).files![0];
     setVideoSrc(URL.createObjectURL(file));
-    await getThumbnails(file.name, file);
+    setUploadFile(file);
     setMessage('Complete generating');
   }
 
@@ -150,23 +164,23 @@ export default function App() {
             bounds='parent'
           >
             <Resizable
-            style={{
-              border: "5px solid blue",
-              position: "absolute",
-              boxSizing: "border-box"
-            }}
-            defaultSize={{
-              width: 500,
-              height: 50
-            }}
-            enable={{
-              left: true,
-              right: true
-            }}
-            bounds='parent'
-          ></Resizable>
+              style={{
+                border: "5px solid blue",
+                position: "absolute",
+                boxSizing: "border-box"
+              }}
+              defaultSize={{
+                width: 500,
+                height: 50
+              }}
+              enable={{
+                left: true,
+                right: true
+              }}
+              bounds='parent'
+            ></Resizable>
           </Draggable>
-          
+
           <Draggable
             axis='x'
             bounds="parent"
@@ -188,11 +202,11 @@ export default function App() {
                 background: "#ff422a"
               }}
             >
-              <span 
+              <span
                 style={{
                   position: 'absolute',
                   bottom: 0,
-                  transform:" translate(-50%, 25px)"
+                  transform: " translate(-50%, 25px)"
                 }}
               >{currentTime}</span>
             </span>
