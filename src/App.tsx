@@ -1,31 +1,26 @@
-import { ChangeEvent, DragEvent, useEffect, useRef, useState } from 'react';
-import { createFFmpeg, fetchFile, FFmpeg } from '@ffmpeg/ffmpeg';
-import Draggable, { DraggableData, DraggableEventHandler, DraggableEvent } from 'react-draggable';
-import { Resizable } from 're-resizable';
-// import { useDraggable } from "react-use-draggable-scroll";
+import { ChangeEvent, useEffect, useRef, useState } from 'react';
+import { createFFmpeg } from '@ffmpeg/ffmpeg';
+
+import { getThumbnails } from './utils/getThumbnails';
+import { getAudioWaveform } from './utils/getAudioWaveform';
 
 const timelineWidth = 500;
 let currentTimeID: ReturnType<typeof setInterval>;
 
 export default function App() {
-  // const frameRef = useRef<HTMLDivElement>() as React.MutableRefObject<HTMLInputElement>;
-  // const { events } = useDraggable(frameRef);
   const videoEl = useRef<HTMLVideoElement>(null);
   const [videoSrc, setVideoSrc] = useState('');
   const [uploadFile, setUploadFile] = useState<File>();
-  const [message, setMessage] = useState('Click Start to transcode');
+  const [audioWaveform, setAudioWaveform] = useState<string>();
   const ffmpeg = createFFmpeg({
     log: false,
   });
   // const [files, setFiles] = useState<FileList | null>();
   const [thumbnails, setThumbnails] = useState<string[]>([]);
   const [play, setPlay] = useState(false);
-  const [replay, setReplay] = useState(false);
   const [currentTime, setCurrentTime] = useState(0);
-  const [pauseTime, setPauseTime] = useState(0);
   const [posX, setPosX] = useState(0);
   const [duration, setDuration] = useState(0);
-  const [isDragging, setIsDragging] = useState(false);
 
   useEffect(() => {
     if (play) {
@@ -37,8 +32,12 @@ export default function App() {
   }, [play])
 
   useEffect(() => {
+    const runFFmpeg = async () => {
+      setThumbnails(await getThumbnails(ffmpeg, uploadFile?.name as string, uploadFile as File, duration));
+      setAudioWaveform(await getAudioWaveform(ffmpeg, uploadFile?.name as string, uploadFile as File));
+    }
     if (uploadFile && duration) {
-      getThumbnails(uploadFile?.name as string, uploadFile as File)
+      runFFmpeg();
     }
   }, [duration, uploadFile])
 
@@ -53,89 +52,36 @@ export default function App() {
     handleReplayClick();
   }
 
-  const getThumbnails = async (fileName: string, file: File) => {
-    await ffmpeg.load();
-    ffmpeg.FS('writeFile', fileName, await fetchFile(file));
-    let tempThumbnails = [];
-
-    // Calculate the interval for the thumbnails
-    const interval = duration / 10;
-
-    // Extract the thumbnails
-    for (let i = 0; i < 10; i++) {
-      const outputFileName = `thumbnail_${i + 1}.jpg`;
-
-      await ffmpeg.run('-ss', String(i * interval), '-i', fileName, '-vf', 'scale=-1:50,crop=50:50', '-frames:v', '1', outputFileName);
-
-      // Read the output file from FFmpeg's in-memory filesystem
-      const data = ffmpeg.FS('readFile', outputFileName);
-
-      // Convert the data to a Blob
-      const blob = new Blob([data.buffer], { type: 'image/jpeg' });
-
-      // Do something with the Blob (e.g., create an Object URL and set it as the src of an img element)
-      const url = URL.createObjectURL(blob);
-      tempThumbnails.push(url);
-      console.log(url);
-    }
-    setThumbnails(tempThumbnails)
-
-  }
-
   const handleOnChange = async (e: ChangeEvent<HTMLInputElement>) => {
-    setMessage('Generate thumbnails');
     setThumbnails([]);
     // setFiles((e.target as HTMLInputElement).files);
     let file = (e.target as HTMLInputElement).files![0];
     setVideoSrc(URL.createObjectURL(file));
     setUploadFile(file);
-    setMessage('Complete generating');
   }
 
   const handlePlayClick = () => {
-    setReplay(false);
     setPlay(!play);
     if (!play) {
       videoEl.current?.play();
     } else {
       videoEl.current?.pause();
     }
-
   }
 
   const handlePauseClick = () => {
     setPlay(false);
     videoEl.current?.pause();
-    setPauseTime(videoEl.current!.currentTime);
     console.log(videoEl.current!.currentTime);
   }
 
   const handleReplayClick = () => {
     handlePauseClick();
-    setReplay(true);
     setPlay(false);
     setCurrentTime(0);
     setPosX(0);
-    setPauseTime(0);
     videoEl.current!.currentTime = 0;
     console.log(posX);
-  }
-
-  const handleDrag = (e: DraggableEvent, data: DraggableData) => {
-    let time = Math.floor(data.x / 500 * duration * 100) / 100;
-    setIsDragging(true);
-    setCurrentTime(time);
-    setPosX(data.x);
-    videoEl.current!.currentTime = time
-  }
-
-  const handleDragStart = () => {
-    setReplay(false);
-  }
-
-  const handleDragStop = (e: DraggableEvent, data: DraggableData) => {
-    setIsDragging(false);
-    handlePauseClick();
   }
 
   return (
@@ -143,11 +89,8 @@ export default function App() {
       <video width="480" src={videoSrc} ref={videoEl} onLoadedMetadata={handleLoadedMetadata} onEnded={handleVideoEnded} controls></video><br />
       <p>Time: {currentTime} s</p>
       <button disabled={!videoSrc} onClick={handlePlayClick}>{!play ? "Play" : "Pause"}</button>
-      {/* <button disabled={!videoSrc || !play} onClick={handleStopClick}>Pause</button> */}
       <button onClick={handleReplayClick}>Replay</button><br />
       <input type="file" accept="video/*" onChange={handleOnChange} />
-      {/* <button disabled={message === 'Start transcoding'} onClick={doTranscode}>Start</button> */}
-      <p>{message}</p>
 
       {videoSrc &&
         <div
@@ -159,63 +102,10 @@ export default function App() {
             position: "relative"
           }}
         >
-          <Draggable
-            axis='x'
-            bounds='parent'
-          >
-            <Resizable
-              style={{
-                border: "5px solid blue",
-                position: "absolute",
-                boxSizing: "border-box"
-              }}
-              defaultSize={{
-                width: 500,
-                height: 50
-              }}
-              enable={{
-                left: true,
-                right: true
-              }}
-              bounds='parent'
-            ></Resizable>
-          </Draggable>
-
-          <Draggable
-            axis='x'
-            bounds="parent"
-            onStart={handleDragStart}
-            onDrag={handleDrag}
-            onStop={handleDragStop}
-            position={replay ? { x: 0, y: 0 } : { x: isDragging ? posX : posX + (currentTime - pauseTime) / duration * timelineWidth, y: 0 }}
-          >
-            <span
-              onMouseEnter={() => {
-                videoEl.current!.pause();
-                setPlay(false)
-              }}
-              style={{
-                cursor: 'grab',
-                position: "absolute",
-                width: "2px",
-                height: "50px",
-                background: "#ff422a"
-              }}
-            >
-              <span
-                style={{
-                  position: 'absolute',
-                  bottom: 0,
-                  transform: " translate(-50%, 25px)"
-                }}
-              >{currentTime}</span>
-            </span>
-          </Draggable>
-          {
-            thumbnails.map((thumbnail, index) =>
-              <img onDrag={(e: DragEvent<HTMLImageElement>) => { e.preventDefault() }} src={thumbnail} key={index} alt="" />
-            )
-          }
+          {thumbnails.map((thumbnail, index) =>
+            <img src={thumbnail} key={index} alt="" />
+          )}
+          <img src={audioWaveform} />
         </div>
       }
 
